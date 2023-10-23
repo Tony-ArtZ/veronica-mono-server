@@ -9,12 +9,13 @@ import { databaseServer } from "./database-server/index.js";
 import chalk from "chalk";
 import mongoose from "mongoose";
 import { httpServer, wsSendMessage } from "./web-socket-server/index.js";
+import { CircularBuffer } from "./utils/ciruclar-buffer.js";
 
 dotenv.config();
 
 const port = process.env.PORT || 3000;
 const app = express();
-const maxMessageAmount = process.env.MESSAGE_MEMORY;
+const maxMessageAmount = process.env.MESSAGE_MEMORY || 10;
 const PORT = process.env.SPOTIFY_PORT || 8080;
 const MongoPORT = process.env.MONGO_DB_PORT || 8080;
 
@@ -24,12 +25,13 @@ const config = new Configuration({
 
 const openAi = new OpenAIApi(config);
 
-let message = [
-  {
-    role: "system",
-    content: prompt,
-  },
-];
+const message = new CircularBuffer(maxMessageAmount);
+
+const promptObject = 
+{
+  role: "system",
+  content: prompt,
+}
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -53,11 +55,7 @@ app.get("/", (req, res) => {
 });
 
 const addToMemory = (data) => {
-  if (message.length >= maxMessageAmount) {
-    message = [message[0]];
-  }
   message.push(data);
-  //console.log(message);
 };
 
 const getReply = () => {
@@ -65,7 +63,7 @@ const getReply = () => {
     openAi
       .createChatCompletion({
         model: "gpt-3.5-turbo",
-        messages: message,
+        messages: [promptObject, ...message.toArray()],
         temperature: 1.3,
         presence_penalty: 1.2,
         functions: [
