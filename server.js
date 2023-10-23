@@ -27,11 +27,10 @@ const openAi = new OpenAIApi(config);
 
 const message = new CircularBuffer(maxMessageAmount);
 
-const promptObject = 
-{
+const promptObject = {
   role: "system",
   content: prompt,
-}
+};
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -70,35 +69,47 @@ const getReply = () => {
           {
             name: "saveMemory",
             description:
-              "save an important piece of information in the local memory in a JSON format",
+              "save an important piece of information permanently for later reference, for example what the user likes or what music the user likes, or who a certain person is and so on",
             parameters: {
               type: "object",
               properties: {
-                property: {
-                  type: "string",
-                  description: "name of the json propery to save",
-                },
                 data: {
                   type: "string",
-                  description: "what data to save in memory",
+                  description: "data to save",
+                },
+                category: {
+                  type: "string",
+                  description:
+                    "what category this memory belongs to, possible values are ['user_details', 'context', 'facts', 'messages']",
+                },
+                tags: {
+                  type: "string",
+                  description:
+                    "tags related to this memory separated by commas ',', to retrieve it later easily. tags should be generic terms, use as many as you can, at least 5.",
                 },
               },
-              required: ["property", "data"],
+              required: ["tags", "data", "category"],
             },
           },
           {
             name: "loadMemory",
             description:
-              "load memory to better tune response for the user and their preference",
+              "search saved data related to a specific topic to better tune your response for the user, for example remembering, user's favorite food or music or who a certain person is or what context is",
             parameters: {
               type: "object",
               properties: {
-                count: {
+                category: {
                   type: "string",
                   description:
-                    "total number of data, use 0 for retirieving all",
+                    "what category this memory could belong to, possible values are ['user_details', 'context', 'facts', 'messages']",
+                },
+                tags: {
+                  type: "string",
+                  description:
+                    "a single tag that could help filter the required data, they should usually be generic terms",
                 },
               },
+              required: ["tags", "category"],
             },
           },
           {
@@ -254,62 +265,82 @@ const getReply = () => {
   });
 };
 
-const saveMemory = (data) => {
-  return new Promise((resolve, reject) => {
-    const json = JSON.parse(data);
-    const dataToSave = { [json.property]: json.data };
-    readFile("./memory.json", "utf8", (err, existingData) => {
-      if (err) {
-        console.error(
-          chalk.blueBright(`Veronica_Server_Error : `) + chalk.red(`${err}`)
-        );
-        reject(err);
-      } else {
-        const json = existingData
-          ? { ...JSON.parse(existingData), ...dataToSave }
-          : dataToSave;
-
-        writeFile("./memory.json", JSON.stringify(json), async (err) => {
-          if (!err) {
-            addToMemory({
-              role: "function",
-              name: "saveMemory",
-              content: "Data successfully saved",
-            });
-            const reply = await getReply();
-            resolve(reply);
-          } else {
-            reject(err);
-          }
-        });
+const saveMemory = async (dataJSON) => {
+  try {
+    const responseJSON = JSON.parse(dataJSON);
+    console.log(
+      chalk.blueBright(`Veronica_Server : `) +
+        chalk.white(`${responseJSON.data}`)
+    );
+    const response = await fetch(
+      `http:/localhost:${process.env.MONGO_DB_PORT}/memory`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          data: responseJSON.data,
+          tags: responseJSON.tags.split(",").map((string) => string.trim()),
+          category: responseJSON.category,
+        }),
       }
+    );
+    const dataResponse = await response.json();
+    console.log(
+      chalk.blueBright(`Veronica_Server : `) +
+        chalk.white(`${JSON.stringify(dataResponse)}`)
+    );
+    addToMemory({
+      role: "function",
+      name: "saveMemory",
+      content: "successfully saved!",
     });
-  });
+  } catch (error) {
+    addToMemory({
+      role: "system",
+      content: "tell the user something went wrong",
+    });
+  }
+  const reply = await getReply();
+  return reply;
 };
 
-const loadMemory = () => {
-  return new Promise((resolve, reject) => {
-    readFile("./memory.json", async (err, data) => {
-      if (err) {
-        console.error(
-          chalk.blueBright(`Veronica_Server_Error : `) + chalk.red(`${error}`)
-        );
-        reject(err);
-      } else {
-        const json = data.toString();
-        console.error(
-          chalk.blueBright(`Veronica_Server : `) + chalk.white(`${json}`)
-        );
-        addToMemory({
-          role: "function",
-          name: "loadMemory",
-          content: json,
-        });
-        const reply = await getReply();
-        resolve(reply);
+const loadMemory = async (dataJSON) => {
+  try {
+    const responseJSON = JSON.parse(dataJSON);
+    // console.log(
+    //   chalk.blueBright(`Veronica_Server : `) +
+    //     chalk.white(`${responseJSON.tags}`)
+    // );
+    const response = await fetch(
+      `http:/localhost:${process.env.MONGO_DB_PORT}/memory`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tags: [responseJSON.tags],
+          category: responseJSON.category,
+        }),
       }
+    );
+    const data = await response.json();
+    console.log(
+      chalk.blueBright(`Veronica_Server : `) +
+        chalk.white(`${JSON.stringify(data)}`)
+    );
+
+    addToMemory({
+      role: "function",
+      name: "loadMemory",
+      content: JSON.stringify(data),
     });
-  });
+  } catch (error) {
+    addToMemory({
+      role: "system",
+      content: "tell the user something went wrong",
+    });
+  }
+  const reply = await getReply();
+  return reply;
 };
 
 const getTodo = async () => {
@@ -319,7 +350,8 @@ const getTodo = async () => {
     );
     const data = await response.json();
     console.log(
-      chalk.blueBright(`Veronica_Server : `) + chalk.white(`${JSON.stringify(data)}`)
+      chalk.blueBright(`Veronica_Server : `) +
+        chalk.white(`${JSON.stringify(data)}`)
     );
     const date = new Date();
 
@@ -364,7 +396,8 @@ const createTodo = async (data) => {
     );
     const dataResponse = await response.json();
     console.log(
-      chalk.blueBright(`Veronica_Server : `) + chalk.white(`${JSON.stringify(dataResponse)}`)
+      chalk.blueBright(`Veronica_Server : `) +
+        chalk.white(`${JSON.stringify(dataResponse)}`)
     );
     addToMemory({
       role: "function",
@@ -398,7 +431,8 @@ const deleteTodo = async (data) => {
     );
     const dataResponse = await response.json();
     console.log(
-      chalk.blueBright(`Veronica_Server : `) + chalk.white(`${JSON.stringify(dataResponse)}`)
+      chalk.blueBright(`Veronica_Server : `) +
+        chalk.white(`${JSON.stringify(dataResponse)}`)
     );
     addToMemory({
       role: "function",
@@ -456,7 +490,8 @@ const spotifyAction = async (actionJSON) => {
 
     const data = await response.json();
     console.log(
-      chalk.blueBright(`Veronica_Server : `) + chalk.white(`${JSON.stringify(data)}`)
+      chalk.blueBright(`Veronica_Server : `) +
+        chalk.white(`${JSON.stringify(data)}`)
     );
 
     addToMemory({
@@ -497,7 +532,8 @@ const spotifyRandomSong = async (genreJSON) => {
       JSON.stringify(data) +
       "song playing, do not call any animation function, reply with just the name of song and artist provided";
     console.log(
-      chalk.blueBright(`Veronica_Server : `) + chalk.white(`${JSON.stringify(content)}`)
+      chalk.blueBright(`Veronica_Server : `) +
+        chalk.white(`${JSON.stringify(content)}`)
     );
 
     addToMemory({
@@ -536,7 +572,8 @@ const spotifySearchSong = async (queryJSON) => {
       JSON.stringify(data) +
       "song playing, do not call any animation function, reply with just the name of song and artist provided";
     console.log(
-      chalk.blueBright(`Veronica_Server : `) + chalk.white(`${JSON.stringify(content)}`)
+      chalk.blueBright(`Veronica_Server : `) +
+        chalk.white(`${JSON.stringify(content)}`)
     );
 
     addToMemory({
@@ -616,7 +653,8 @@ app.post("/", async (req, res) => {
   });
   const response = await getReply();
   console.log(
-    chalk.blueBright(`Veronica_Server : `) + chalk.white(`${JSON.stringify(response)}`)
+    chalk.blueBright(`Veronica_Server : `) +
+      chalk.white(`${JSON.stringify(response)}`)
   );
   if (response.function_call) {
     const functionToExecute = functions[response.function_call.name];
@@ -624,7 +662,8 @@ app.post("/", async (req, res) => {
     console.log(
       chalk.blueBright(`Veronica_Server : `) +
         // chalk.yellow(`Function: `) + functionToExecute +
-        chalk.green(`Parameters: `) + parameters
+        chalk.green(`Parameters: `) +
+        parameters
     );
     functionToExecute(parameters).then((memoryResponse) => {
       res.json(memoryResponse);
