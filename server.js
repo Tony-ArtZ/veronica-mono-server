@@ -53,6 +53,11 @@ app.get("/", (req, res) => {
   res.send("Invalid Method");
 });
 
+app.get("/clear", (req, res) => {
+  message.clear();
+  res.send("Memory Cleared");
+});
+
 const addToMemory = (data) => {
   message.push(data);
 };
@@ -259,6 +264,25 @@ const getReply = () => {
         // console.log(
         //   "message :" + JSON.stringify(apiRes.data.choices[0].message)
         // );
+        if (apiRes.data.choices[0].message.function_call) {
+          const functionToExecute = functions[apiRes.data.choices[0].message.function_call.name];
+          const parameters = apiRes.data.choices[0].message.function_call.arguments;
+          console.log(
+            chalk.blueBright(`Veronica_Server : `) +
+              // chalk.yellow(`Function: `) + functionToExecute +
+              chalk.green(`Parameters: `) +
+              parameters
+          );
+          functionToExecute(parameters).then((memoryResponse) => {
+            res(memoryResponse);
+            console.log(
+              chalk.blueBright(`Veronica_Server : `) +
+                chalk.white(`${JSON.stringify(memoryResponse)}`)
+            );
+          });
+        } else {
+          res(apiRes.data.choices[0].message);
+        }
         addToMemory(apiRes.data.choices[0].message);
         res(apiRes.data.choices[0].message);
       });

@@ -40,6 +40,10 @@ class CircularBuffer {
 
         return element;
     }
+
+    clear () {
+        this.buffer = [];
+    }
 }
 
 export { CircularBuffer };
