@@ -1,8 +1,7 @@
 import express, { response } from "express";
 import { Configuration, OpenAIApi } from "openai";
 import * as dotenv from "dotenv";
-import { readFile, writeFile } from "fs";
-import { prompt } from "./prompt.js";
+import { prompt } from "./utils/prompt.js";
 import fetch from "node-fetch";
 import { getRefreshToken, spotifyApp } from "./spotify-server/index.js";
 import { databaseServer } from "./database-server/index.js";
@@ -10,7 +9,8 @@ import chalk from "chalk";
 import mongoose from "mongoose";
 import { httpServer, wsSendMessage } from "./web-socket-server/index.js";
 import { CircularBuffer } from "./utils/ciruclar-buffer.js";
-
+import { getTrainStatus } from "./functions/trainStatus.js";
+import openAiConfig from "./utils/openAiConfig.js";
 dotenv.config();
 
 const port = process.env.PORT || 3000;
@@ -23,14 +23,15 @@ const config = new Configuration({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-const openAi = new OpenAIApi(config);
-
-const message = new CircularBuffer(maxMessageAmount);
-
 const promptObject = {
   role: "system",
   content: prompt,
 };
+
+const message = new CircularBuffer(maxMessageAmount);
+
+//Open AI GPT chatCompletion instance
+const openAi = new OpenAIApi(config);
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -66,207 +67,15 @@ const getReply = () => {
   return new Promise((res) => {
     openAi
       .createChatCompletion({
-        model: "gpt-3.5-turbo",
+        ...openAiConfig,
         messages: [promptObject, ...message.toArray()],
-        temperature: 1.3,
-        presence_penalty: 1.2,
-        functions: [
-          {
-            name: "saveMemory",
-            description:
-              "save an important piece of information permanently for later reference, for example what the user likes or what music the user likes, or who a certain person is and so on",
-            parameters: {
-              type: "object",
-              properties: {
-                data: {
-                  type: "string",
-                  description: "data to save",
-                },
-                category: {
-                  type: "string",
-                  description:
-                    "what category this memory belongs to, possible values are ['user_details', 'context', 'facts', 'messages']",
-                },
-                tags: {
-                  type: "string",
-                  description:
-                    "tags related to this memory separated by commas ',', to retrieve it later easily. tags should be generic terms, use as many as you can, at least 5.",
-                },
-              },
-              required: ["tags", "data", "category"],
-            },
-          },
-          {
-            name: "loadMemory",
-            description:
-              "search saved data related to a specific topic to better tune your response for the user, for example remembering, user's favorite food or music or who a certain person is or what context is",
-            parameters: {
-              type: "object",
-              properties: {
-                category: {
-                  type: "string",
-                  description:
-                    "what category this memory could belong to, possible values are ['user_details', 'context', 'facts', 'messages']",
-                },
-                tags: {
-                  type: "string",
-                  description:
-                    "a single tag that could help filter the required data, they should usually be generic terms",
-                },
-              },
-              required: ["tags", "category"],
-            },
-          },
-          {
-            name: "getTodo",
-            description:
-              "get the list of all the current todos present in the todo list as well todays date to see which tasks are due",
-            parameters: {
-              type: "object",
-              properties: {
-                count: {
-                  type: "string",
-                  description:
-                    "total number of data, use 0 for retirieving all",
-                },
-              },
-            },
-          },
-          {
-            name: "createTodo",
-            description:
-              "create and save a task in a todo list that can be accessed later",
-            parameters: {
-              type: "object",
-              properties: {
-                task: {
-                  type: "string",
-                  description: "name or content of the task",
-                },
-                dueDate: {
-                  type: "string",
-                  description:
-                    "due date in the format of 'YYYY-MM-DD', if the user specifies",
-                },
-              },
-              required: ["task"],
-            },
-          },
-          {
-            name: "deleteTodo",
-            description: "delete a task",
-            parameters: {
-              type: "object",
-              properties: {
-                index: {
-                  type: "number",
-                  description: "index of the task, first means 0",
-                },
-              },
-              required: ["index"],
-            },
-          },
-          {
-            name: "getWeather",
-            description: "delete a task",
-            parameters: {
-              type: "object",
-              properties: {
-                count: {
-                  type: "number",
-                  description:
-                    "not necessary, changes the amount of data count",
-                },
-              },
-            },
-          },
-          {
-            name: "spotifyAction",
-            description:
-              "call this function to control user's music, make sure to include an action depending on what the user asks",
-            parameters: {
-              type: "object",
-              properties: {
-                action: {
-                  type: "string",
-                  description:
-                    "possible values are only 'next' to change to the next song and 'details' to get the details of the current song, 'play' to start or resume music, 'pause' to stop music",
-                },
-              },
-            },
-            required: ["action"],
-          },
-          {
-            name: "spotifyRandomSong",
-            description:
-              "call this function to play a random song, make sure to add a genre, if user doesn't specify use 'random' as argument",
-            parameters: {
-              type: "object",
-              properties: {
-                genre: {
-                  type: "string",
-                  description: `possible values are ["acoustic", "afrobeat", "alt-rock", "alternative", "ambient", "anime", "black-metal", "bluegrass", "blues", "bossanova", "brazil", "breakbeat", "british", "cantopop", "chicago-house", "children", "chill", "classical", "club", "comedy", "country", "dance", "dancehall", "death-metal", "deep-house", "detroit-techno", "disco", "disney", "drum-and-bass", "dub", "dubstep", "edm", "electro", "electronic", "emo", "folk", "forro", "french", "funk", "garage", "german", "gospel", "goth", "grindcore", "groove", "grunge", "guitar", "happy", "hard-rock", "hardcore", "hardstyle", "heavy-metal", "hip-hop", "holidays", "honky-tonk", "house", "idm", "indian", "indie", "indie-pop", "industrial", "iranian", "j-dance", "j-idol", "j-pop", "j-rock", "jazz", "k-pop", "kids", "latin", "latino", "malay", "mandopop", "metal", "metal-misc", "metalcore", "minimal-techno", "movies", "mpb", "new-age", "new-release", "opera", "pagode", "party", "philippines-opm", "piano", "pop", "pop-film", "post-dubstep", "power-pop", "progressive-house", "psych-rock", "punk", "punk-rock", "r-n-b", "rainy-day", "reggae", "reggaeton", "road-trip", "rock", "rock-n-roll", "rockabilly", "romance", "sad", "salsa", "samba", "sertanejo", "show-tunes", "singer-songwriter", "ska", "sleep", "songwriter", "soul", "soundtracks", "spanish", "study", "summer", "swedish", "synth-pop", "tango", "techno", "trance", "trip-hop", "turkish", "work-out", "world-music", "random"] `,
-                },
-              },
-            },
-            required: ["genre"],
-          },
-          {
-            name: "spotifySearchSong",
-            description:
-              "call this function to search and play a specific song",
-            parameters: {
-              type: "object",
-              properties: {
-                query: {
-                  type: "string",
-                  description: "name of the song to search for",
-                },
-              },
-            },
-            required: ["query"],
-          },
-          {
-            name: "deviceAction",
-            description:
-              "call this function to control an external device such as laptop",
-            parameters: {
-              type: "object",
-              properties: {
-                action: {
-                  type: "string",
-                  description:
-                    "name of the action. possible values are ['shutdown', 'turnon']",
-                },
-              },
-            },
-            required: ["action"],
-          },
-          {
-            name: "doAnimation",
-            description:
-              "call this function before every response unless it is unnecessary. This makes your avatar do an expressive animation like laughing before telling a joke or being angry when user says something mean",
-            parameters: {
-              type: "object",
-              properties: {
-                animationName: {
-                  type: "string",
-                  description:
-                    "possible values are 'Laughing', 'Greet', 'Thank', 'Sad', 'Angry', 'Disappointed' and 'Happy'",
-                },
-              },
-            },
-            required: ["animationName"],
-          },
-        ],
       })
       .then((apiRes) => {
-        // console.log(
-        //   "message :" + JSON.stringify(apiRes.data.choices[0].message)
-        // );
         if (apiRes.data.choices[0].message.function_call) {
-          const functionToExecute = functions[apiRes.data.choices[0].message.function_call.name];
-          const parameters = apiRes.data.choices[0].message.function_call.arguments;
+          const functionToExecute =
+            functions[apiRes.data.choices[0].message.function_call.name];
+          const parameters =
+            apiRes.data.choices[0].message.function_call.arguments;
           console.log(
             chalk.blueBright(`Veronica_Server : `) +
               // chalk.yellow(`Function: `) + functionToExecute +
@@ -636,6 +445,43 @@ const deviceAction = async (actionJSON) => {
   return reply;
 };
 
+const getTrainLiveStatus = async (args) => {
+  try {
+    const argsParsed = JSON.parse(args);
+
+    const trainNo = argsParsed.trainNo || 18451;
+    let date;
+
+    if (argsParsed.date) {
+      date = argsParsed.date;
+    } else {
+      //Get current date in the format of YYMMDD if no date specified
+      const today = new Date().toISOString().split("T")[0].split("-");
+      date = today[0] + today[1] + today[2];
+    }
+
+    const response = await getTrainStatus(trainNo, date);
+    if (response.error) {
+      throw response.error;
+    }
+
+    addToMemory({
+      role: "function",
+      name: "getTrainLiveStatus",
+      content: `tell the user this info without any function call, Train Name: '${response.trainName}', Status: '${response.trainContent}'`,
+    });
+    const reply = await getReply();
+    return reply;
+  } catch (error) {
+    addToMemory({
+      role: "function",
+      name: "getTrainLiveStatus",
+      content: `Something went wrong.`,
+    });
+    return "My apologies, Something seems to have gone wrong. Please try again later";
+  }
+};
+
 const doAnimation = async (animationJSON) => {
   const animation = JSON.parse(animationJSON).animationName;
   addToMemory({
@@ -663,6 +509,7 @@ const functions = {
   spotifyRandomSong,
   spotifySearchSong,
   deviceAction,
+  getTrainLiveStatus,
   doAnimation,
 };
 
@@ -708,6 +555,7 @@ httpServer.listen(port, () => {
   mongooseConnect();
 });
 
+//Host MongoDB first and if it connects successfully then connect to other services
 const mongooseConnect = async () => {
   console.log(chalk.yellow("Connecting to Database..."));
   try {
