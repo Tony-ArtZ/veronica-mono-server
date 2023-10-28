@@ -71,7 +71,7 @@ const getReply = () => {
         messages: [promptObject, ...message.toArray()],
       })
       .then((apiRes) => {
-        if (apiRes.data.choices[0].message.function_call) {
+        if (apiRes.data.choices[0].message.function_call && !message.content) {
           const functionToExecute =
             functions[apiRes.data.choices[0].message.function_call.name];
           const parameters =
