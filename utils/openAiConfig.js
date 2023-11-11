@@ -196,20 +196,23 @@ const openAiConfig = {
       },
     },
     {
-      name: "doAnimation",
-      description:
-        "call this function before every response unless it is unnecessary. This makes your avatar do an expressive animation like laughing before telling a joke or being angry when user says something mean",
+      name: "sendMessageWithAnimation",
+      description: "Use this often instead of normal replies. send a reply while doing an animation along with it. for example replying to hi with a message and 'greet' animation",
       parameters: {
         type: "object",
         properties: {
+          content: {
+            type: "string",
+            description: "this is the reply that will be sent to the user. Must not be empty",
+          },
           animationName: {
             type: "string",
             description:
-              "possible values are 'Laughing', 'Greet', 'Thank', 'Sad', 'Angry', 'Disappointed' and 'Happy'",
+              "name of animation to perform. Possible values are ['Laughing', 'Greet', 'Thank', 'Sad', 'Angry', 'Disappointed' and 'Happy']",
           },
         },
       },
-      required: ["animationName"],
+      required: ["content", "animationName"],
     },
   ],
 };

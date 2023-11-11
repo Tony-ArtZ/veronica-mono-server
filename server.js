@@ -71,28 +71,18 @@ const getReply = () => {
         messages: [promptObject, ...message.toArray()],
       })
       .then((apiRes) => {
-        if (apiRes.data.choices[0].message.function_call && !message.content) {
-          const functionToExecute =
-            functions[apiRes.data.choices[0].message.function_call.name];
-          const parameters =
-            apiRes.data.choices[0].message.function_call.arguments;
-          console.log(
-            chalk.blueBright(`Veronica_Server : `) +
-              // chalk.yellow(`Function: `) + functionToExecute +
-              chalk.green(`Parameters: `) +
-              parameters
+        if (
+          apiRes.data.choices[0].message.function_call?.name ===
+            "sendMessageWithAnimation" &&
+          !message.content
+        ) {
+          const message = sendMessageWithAnimation(
+            apiRes.data.choices[0].message.function_call.arguments
           );
-          functionToExecute(parameters).then((memoryResponse) => {
-            res(memoryResponse);
-            console.log(
-              chalk.blueBright(`Veronica_Server : `) +
-                chalk.white(`${JSON.stringify(memoryResponse)}`)
-            );
-          });
+          addToMemory(message);
         } else {
-          res(apiRes.data.choices[0].message);
+          addToMemory(apiRes.data.choices[0].message);
         }
-        addToMemory(apiRes.data.choices[0].message);
         res(apiRes.data.choices[0].message);
       });
   });
@@ -112,7 +102,9 @@ const saveMemory = async (dataJSON) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           data: responseJSON.data,
-          tags: responseJSON.tags.split(",").map((string) => string.trim()),
+          tags: responseJSON.tags
+            .split(",")
+            .map((string) => string.toLowerCase().trim()),
           category: responseJSON.category,
         }),
       }
@@ -150,7 +142,7 @@ const loadMemory = async (dataJSON) => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          tags: [responseJSON.tags],
+          tags: [responseJSON.tags.toLowerCase()],
           category: responseJSON.category,
         }),
       }
@@ -164,7 +156,7 @@ const loadMemory = async (dataJSON) => {
     addToMemory({
       role: "function",
       name: "loadMemory",
-      content: JSON.stringify(data),
+      content: "here are all the data entries, tell the user this :" + JSON.stringify(data),
     });
   } catch (error) {
     addToMemory({
@@ -482,20 +474,15 @@ const getTrainLiveStatus = async (args) => {
   }
 };
 
-const doAnimation = async (animationJSON) => {
-  const animation = JSON.parse(animationJSON).animationName;
+const sendMessageWithAnimation = async (animationJSON) => {
+  const { animationName, content } = JSON.parse(animationJSON);
   addToMemory({
     role: "function",
-    name: "doAnimation",
-    content: "Animation done, please continue your response",
+    name: "sendMessageWithAnimation",
+    content,
   });
 
-  const reply = await getReply();
-  const finalResponse = { ...reply };
-  // console.log("response before function:", JSON.stringify(finalResponse));
-  finalResponse.content += JSON.stringify({ expression: animation });
-  // console.log("response after function:", JSON.stringify(finalResponse));
-  return finalResponse;
+  return { role: "assistant", content, animation: animationName };
 };
 
 const functions = {
@@ -510,7 +497,7 @@ const functions = {
   spotifySearchSong,
   deviceAction,
   getTrainLiveStatus,
-  doAnimation,
+  sendMessageWithAnimation,
 };
 
 app.get("/ping", (req, res) => {
