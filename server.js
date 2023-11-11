@@ -11,6 +11,7 @@ import { httpServer, wsSendMessage } from "./web-socket-server/index.js";
 import { CircularBuffer } from "./utils/ciruclar-buffer.js";
 import { getTrainStatus } from "./functions/trainStatus.js";
 import openAiConfig from "./utils/openAiConfig.js";
+import { Memory } from "./database-server/models/memory.js";
 dotenv.config();
 
 const port = process.env.PORT || 3000;
@@ -76,10 +77,9 @@ const getReply = () => {
             "sendMessageWithAnimation" &&
           !message.content
         ) {
-          const message = sendMessageWithAnimation(
+          sendMessageWithAnimation(
             apiRes.data.choices[0].message.function_call.arguments
           );
-          addToMemory(message);
         } else {
           addToMemory(apiRes.data.choices[0].message);
         }
@@ -477,8 +477,7 @@ const getTrainLiveStatus = async (args) => {
 const sendMessageWithAnimation = async (animationJSON) => {
   const { animationName, content } = JSON.parse(animationJSON);
   addToMemory({
-    role: "function",
-    name: "sendMessageWithAnimation",
+    role: "assistant",
     content,
   });
 
